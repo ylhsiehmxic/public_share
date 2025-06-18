@@ -1,0 +1,225 @@
+diff --git a/llvm/include/llvm/IR/IntrinsicsRISCV.td b/llvm/include/llvm/IR/IntrinsicsRISCV.td
+index 99cb557d9aa0..abdb41fe902e 100644
+--- a/llvm/include/llvm/IR/IntrinsicsRISCV.td
++++ b/llvm/include/llvm/IR/IntrinsicsRISCV.td
+@@ -1382,6 +1382,7 @@ let TargetPrefix = "riscv" in {
+   def int_riscv_vsm : RISCVUSStore;
+ 
+   defm vadd : RISCVBinaryAAX;
++  defm vadd2 : RISCVBinaryAAX; //YL add
+   defm vsub : RISCVBinaryAAX;
+   defm vrsub : RISCVBinaryAAX;
+ 
+diff --git a/llvm/lib/Target/RISCV/RISCVISelLowering.cpp b/llvm/lib/Target/RISCV/RISCVISelLowering.cpp
+index d4eaf06f857b..14349338cf5b 100644
+--- a/llvm/lib/Target/RISCV/RISCVISelLowering.cpp
++++ b/llvm/lib/Target/RISCV/RISCVISelLowering.cpp
+@@ -6510,7 +6510,7 @@ static bool hasPassthruOp(unsigned Opcode) {
+          Opcode <= RISCVISD::LAST_STRICTFP_OPCODE &&
+          "not a RISC-V target specific op");
+   static_assert(
+-      RISCVISD::LAST_VL_VECTOR_OP - RISCVISD::FIRST_VL_VECTOR_OP == 127 &&
++      RISCVISD::LAST_VL_VECTOR_OP - RISCVISD::FIRST_VL_VECTOR_OP == 128 && //YL add modify: change from 127 to 128, because add VADD2_VL in RISCVISelLowering.h
+       RISCVISD::LAST_STRICTFP_OPCODE - RISCVISD::FIRST_STRICTFP_OPCODE == 21 &&
+       "adding target specific op should update this function");
+   if (Opcode >= RISCVISD::ADD_VL && Opcode <= RISCVISD::VFMAX_VL)
+@@ -6534,7 +6534,7 @@ static bool hasMaskOp(unsigned Opcode) {
+          Opcode <= RISCVISD::LAST_STRICTFP_OPCODE &&
+          "not a RISC-V target specific op");
+   static_assert(
+-      RISCVISD::LAST_VL_VECTOR_OP - RISCVISD::FIRST_VL_VECTOR_OP == 127 &&
++      RISCVISD::LAST_VL_VECTOR_OP - RISCVISD::FIRST_VL_VECTOR_OP == 128 && //YL add modify: change 127 to 128, because add VADD2_VL in RISCVISelLowering.h
+       RISCVISD::LAST_STRICTFP_OPCODE - RISCVISD::FIRST_STRICTFP_OPCODE == 21 &&
+       "adding target specific op should update this function");
+   if (Opcode >= RISCVISD::TRUNCATE_VECTOR_VL && Opcode <= RISCVISD::SETCC_VL)
+@@ -20987,6 +20987,7 @@ const char *RISCVTargetLowering::getTargetNodeName(unsigned Opcode) const {
+   NODE_NAME_CASE(VECREDUCE_FMIN_VL)
+   NODE_NAME_CASE(VECREDUCE_FMAX_VL)
+   NODE_NAME_CASE(ADD_VL)
++  NODE_NAME_CASE(ADD2_VL) //YL add
+   NODE_NAME_CASE(AND_VL)
+   NODE_NAME_CASE(MUL_VL)
+   NODE_NAME_CASE(OR_VL)
+diff --git a/llvm/lib/Target/RISCV/RISCVISelLowering.h b/llvm/lib/Target/RISCV/RISCVISelLowering.h
+index 77605a3076a8..10dc128933f2 100644
+--- a/llvm/lib/Target/RISCV/RISCVISelLowering.h
++++ b/llvm/lib/Target/RISCV/RISCVISelLowering.h
+@@ -263,6 +263,7 @@ enum NodeType : unsigned {
+   // Vector binary ops with a passthru as a third operand, a mask as a fourth
+   // operand, and VL as a fifth operand.
+   ADD_VL,
++  ADD2_VL, //YL add
+   AND_VL,
+   MUL_VL,
+   OR_VL,
+diff --git a/llvm/lib/Target/RISCV/RISCVInstrInfo.cpp b/llvm/lib/Target/RISCV/RISCVInstrInfo.cpp
+index 87f1f35835cb..18dd1bf6c452 100644
+--- a/llvm/lib/Target/RISCV/RISCVInstrInfo.cpp
++++ b/llvm/lib/Target/RISCV/RISCVInstrInfo.cpp
+@@ -1777,7 +1777,9 @@ bool RISCVInstrInfo::isVectorAssociativeAndCommutative(const MachineInstr &Inst,
+   default:
+     return false;
+   OPCODE_LMUL_CASE(PseudoVADD_VV):
++  OPCODE_LMUL_CASE(PseudoVADD2_VV): //YL add
+   OPCODE_LMUL_MASK_CASE(PseudoVADD_VV):
++  OPCODE_LMUL_MASK_CASE(PseudoVADD2_VV): //YL add
+   OPCODE_LMUL_CASE(PseudoVMUL_VV):
+   OPCODE_LMUL_MASK_CASE(PseudoVMUL_VV):
+     return true;
+@@ -3356,6 +3358,7 @@ bool RISCVInstrInfo::findCommutedOpIndices(const MachineInstr &MI,
+     // Operands 4 and 5 are commutable.
+     return fixCommutedOpIndices(SrcOpIdx1, SrcOpIdx2, 4, 5);
+   case CASE_RVV_OPCODE(VADD_VV):
++  case CASE_RVV_OPCODE(VADD2_VV): //YL add
+   case CASE_RVV_OPCODE(VAND_VV):
+   case CASE_RVV_OPCODE(VOR_VV):
+   case CASE_RVV_OPCODE(VXOR_VV):
+@@ -4127,6 +4130,7 @@ RISCV::getVectorLowDemandedScalarBits(uint16_t Opcode, unsigned Log2SEW) {
+ 
+   // 11.1. Vector Single-Width Integer Add and Subtract
+   case RISCV::VADD_VX:
++  case RISCV::VADD2_VX: //YL add
+   case RISCV::VSUB_VX:
+   case RISCV::VRSUB_VX:
+   // 11.2. Vector Widening Integer Add/Subtract
+diff --git a/llvm/lib/Target/RISCV/RISCVInstrInfoV.td b/llvm/lib/Target/RISCV/RISCVInstrInfoV.td
+index 671e493fb376..cae2d9751ee8 100644
+--- a/llvm/lib/Target/RISCV/RISCVInstrInfoV.td
++++ b/llvm/lib/Target/RISCV/RISCVInstrInfoV.td
+@@ -1114,6 +1114,7 @@ def : InstAlias<"vl8r.v $vd, (${rs1})", (VL8RE8_V VRM8:$vd, GPR:$rs1)>;
+ let Predicates = [HasVInstructions] in {
+ // Vector Single-Width Integer Add and Subtract
+ defm VADD_V : VALU_IV_V_X_I<"vadd", 0b000000>;
++defm VADD2_V : VALU_IV_V_X_I<"vadd2", 0b001000>; //YL add (here not to adopt 0b000001, due to conflict)
+ defm VSUB_V : VALU_IV_V_X<"vsub", 0b000010>;
+ defm VRSUB_V : VALU_IV_X_I<"vrsub", 0b000011>;
+ 
+diff --git a/llvm/lib/Target/RISCV/RISCVInstrInfoVPseudos.td b/llvm/lib/Target/RISCV/RISCVInstrInfoVPseudos.td
+index 268bfe70673a..2e756d7f4115 100644
+--- a/llvm/lib/Target/RISCV/RISCVInstrInfoVPseudos.td
++++ b/llvm/lib/Target/RISCV/RISCVInstrInfoVPseudos.td
+@@ -6152,6 +6152,7 @@ defm PseudoVLSEG : VPseudoUSSegLoadFF;
+ // 11.1. Vector Single-Width Integer Add and Subtract
+ //===----------------------------------------------------------------------===//
+ defm PseudoVADD   : VPseudoVALU_VV_VX_VI<Commutable=1>;
++defm PseudoVADD2   : VPseudoVALU_VV_VX_VI<Commutable=1>; //YL add
+ defm PseudoVSUB   : VPseudoVALU_VV_VX;
+ defm PseudoVRSUB  : VPseudoVALU_VX_VI;
+ 
+@@ -6773,6 +6774,7 @@ defm PseudoVCOMPRESS : VPseudoVCPR_V;
+ // 11.1. Vector Single-Width Integer Add and Subtract
+ //===----------------------------------------------------------------------===//
+ defm : VPatBinaryV_VV_VX_VI<"int_riscv_vadd", "PseudoVADD", AllIntegerVectors>;
++defm : VPatBinaryV_VV_VX_VI<"int_riscv_vadd2", "PseudoVADD2", AllIntegerVectors>; //YL add
+ defm : VPatBinaryV_VV_VX<"int_riscv_vsub", "PseudoVSUB", AllIntegerVectors>;
+ defm : VPatBinaryV_VX_VI<"int_riscv_vrsub", "PseudoVRSUB", AllIntegerVectors>;
+ 
+diff --git a/llvm/lib/Target/RISCV/RISCVInstrInfoVSDPatterns.td b/llvm/lib/Target/RISCV/RISCVInstrInfoVSDPatterns.td
+index 880ea0ae0a97..d335b562ec9a 100644
+--- a/llvm/lib/Target/RISCV/RISCVInstrInfoVSDPatterns.td
++++ b/llvm/lib/Target/RISCV/RISCVInstrInfoVSDPatterns.td
+@@ -894,7 +894,8 @@ foreach mti = AllMasks in
+ // 11. Vector Integer Arithmetic Instructions
+ 
+ // 11.1. Vector Single-Width Integer Add and Subtract
+-defm : VPatBinarySDNode_VV_VX_VI<add, "PseudoVADD">;
++//defm : VPatBinarySDNode_VV_VX_VI<add, "PseudoVADD">; //YL add modify. Replace with the modified one below
++defm : VPatBinarySDNode_VV_VX_VI<add, "PseudoVADD2">; //YL add modify. Note: modify, not to add a new defm with <add2, "PseudoVADD2">, because here is to replace general "add" to "PseudoVADD2"
+ defm : VPatBinarySDNode_VV_VX<sub, "PseudoVSUB">;
+ // Handle VRSUB specially since it's the only integer binary op with reversed
+ // pattern operands
+@@ -992,6 +993,12 @@ foreach vti = AllIntegerVectors in {
+             (!cast<Instruction>("PseudoVADD_VV_"# vti.LMul.MX)
+                  (vti.Vector (IMPLICIT_DEF)), vti.RegClass:$rs1,
+                  vti.RegClass:$rs1, vti.AVL, vti.Log2SEW, TA_MA)>;
++  //YL add
++  def : Pat<(shl (vti.Vector vti.RegClass:$rs1),
++                 (vti.Vector (riscv_vmv_v_x_vl (vti.Vector undef), 1, (XLenVT srcvalue)))),
++            (!cast<Instruction>("PseudoVADD2_VV_"# vti.LMul.MX)
++                 (vti.Vector (IMPLICIT_DEF)), vti.RegClass:$rs1,
++                 vti.RegClass:$rs1, vti.AVL, vti.Log2SEW, TA_MA)>;
+ 
+ }
+ 
+diff --git a/llvm/lib/Target/RISCV/RISCVInstrInfoVVLPatterns.td b/llvm/lib/Target/RISCV/RISCVInstrInfoVVLPatterns.td
+index 2026ba79e623..0d20eecaeed1 100644
+--- a/llvm/lib/Target/RISCV/RISCVInstrInfoVVLPatterns.td
++++ b/llvm/lib/Target/RISCV/RISCVInstrInfoVVLPatterns.td
+@@ -96,6 +96,7 @@ def riscv_vfmv_s_f_vl : SDNode<"RISCVISD::VFMV_S_F_VL",
+                                                     SDTCisVT<3, XLenVT>]>>;
+ 
+ def riscv_add_vl   : SDNode<"RISCVISD::ADD_VL",   SDT_RISCVIntBinOp_VL, [SDNPCommutative]>;
++def riscv_add2_vl   : SDNode<"RISCVISD::ADD2_VL",   SDT_RISCVIntBinOp_VL, [SDNPCommutative]>; //YL add
+ def riscv_sub_vl   : SDNode<"RISCVISD::SUB_VL",   SDT_RISCVIntBinOp_VL>;
+ def riscv_mul_vl   : SDNode<"RISCVISD::MUL_VL",   SDT_RISCVIntBinOp_VL, [SDNPCommutative]>;
+ def riscv_mulhs_vl : SDNode<"RISCVISD::MULHS_VL", SDT_RISCVIntBinOp_VL, [SDNPCommutative]>;
+@@ -2030,6 +2031,7 @@ multiclass VPatAVGADDVL_VV_VX_RM<SDNode vop, int vxrm, string suffix = ""> {
+ 
+ // 11.1. Vector Single-Width Integer Add and Subtract
+ defm : VPatBinaryVL_VV_VX_VI<riscv_add_vl, "PseudoVADD">;
++defm : VPatBinaryVL_VV_VX_VI<riscv_add2_vl, "PseudoVADD2">; //YL add
+ defm : VPatBinaryVL_VV_VX<riscv_sub_vl, "PseudoVSUB">;
+ // Handle VRSUB specially since it's the only integer binary op with reversed
+ // pattern operands
+@@ -2116,6 +2118,13 @@ foreach vti = AllIntegerVectors in {
+             (!cast<Instruction>("PseudoVADD_VV_"# vti.LMul.MX)
+                  (vti.Vector (IMPLICIT_DEF)),
+                  vti.RegClass:$rs1, vti.RegClass:$rs1, GPR:$vl, vti.Log2SEW, TA_MA)>;
++  //YL add (copy above)
++  def : Pat<(riscv_shl_vl (vti.Vector vti.RegClass:$rs1),
++                          (riscv_vmv_v_x_vl (vti.Vector undef), 1, (XLenVT srcvalue)),
++                          srcvalue, (vti.Mask true_mask), VLOpFrag),
++            (!cast<Instruction>("PseudoVADD2_VV_"# vti.LMul.MX)
++                 (vti.Vector (IMPLICIT_DEF)),
++                 vti.RegClass:$rs1, vti.RegClass:$rs1, GPR:$vl, vti.Log2SEW, TA_MA)>;
+ }
+ 
+ // 11.7. Vector Narrowing Integer Right Shift Instructions
+diff --git a/llvm/lib/Target/RISCV/RISCVTargetTransformInfo.cpp b/llvm/lib/Target/RISCV/RISCVTargetTransformInfo.cpp
+index 8f1094413a75..68f9142ce4e0 100644
+--- a/llvm/lib/Target/RISCV/RISCVTargetTransformInfo.cpp
++++ b/llvm/lib/Target/RISCV/RISCVTargetTransformInfo.cpp
+@@ -1154,7 +1154,7 @@ RISCVTTIImpl::getIntrinsicInstrCost(const IntrinsicCostAttributes &ICA,
+     if (ST->hasVInstructions())
+       return getRISCVInstructionCost(RISCV::VID_V, LT.second, CostKind) +
+              (LT.first - 1) *
+-                 getRISCVInstructionCost(RISCV::VADD_VX, LT.second, CostKind);
++                 getRISCVInstructionCost(RISCV::VADD2_VX, LT.second, CostKind); //YL add modify (replace VADD_VX by VADD2_VX)
+     return 1 + (LT.first - 1);
+   }
+   case Intrinsic::experimental_cttz_elts: {
+@@ -1641,7 +1641,7 @@ RISCVTTIImpl::getArithmeticReductionCost(unsigned Opcode, VectorType *Ty,
+   SmallVector<unsigned, 3> Opcodes;
+   switch (ISD) {
+   case ISD::ADD:
+-    SplitOp = RISCV::VADD_VV;
++    SplitOp = RISCV::VADD2_VV; //YL add modify (replace VADD_VV by VADD2_VV)
+     Opcodes = {RISCV::VMV_S_X, RISCV::VREDSUM_VS, RISCV::VMV_X_S};
+     break;
+   case ISD::OR:
+diff --git a/llvm/lib/Target/RISCV/RISCVVLOptimizer.cpp b/llvm/lib/Target/RISCV/RISCVVLOptimizer.cpp
+index d9e62449490d..cd53c34f001c 100644
+--- a/llvm/lib/Target/RISCV/RISCVVLOptimizer.cpp
++++ b/llvm/lib/Target/RISCV/RISCVVLOptimizer.cpp
+@@ -295,6 +295,10 @@ getOperandLog2EEW(const MachineOperand &MO, const MachineRegisterInfo *MRI) {
+   case RISCV::VADD_VI:
+   case RISCV::VADD_VV:
+   case RISCV::VADD_VX:
++  //YL add below VADD2
++  case RISCV::VADD2_VI:
++  case RISCV::VADD2_VV:
++  case RISCV::VADD2_VX:
+   case RISCV::VSUB_VV:
+   case RISCV::VSUB_VX:
+   case RISCV::VRSUB_VI:
+@@ -811,6 +815,10 @@ static bool isSupportedInstr(const MachineInstr &MI) {
+   case RISCV::VADD_VI:
+   case RISCV::VADD_VV:
+   case RISCV::VADD_VX:
++  //YL add below VADD2
++  case RISCV::VADD2_VI:
++  case RISCV::VADD2_VV:
++  case RISCV::VADD2_VX:
+   case RISCV::VSUB_VV:
+   case RISCV::VSUB_VX:
+   case RISCV::VRSUB_VI:
