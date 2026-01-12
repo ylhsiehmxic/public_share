@@ -1,0 +1,7 @@
+Parity inconsistency problem definition:
+
+In typical RAID, user logical address is directly mapped to stripe chunk, using a static transformation (e.g.  stripe_id = addr / stripe_size, and chunk = addr % chunk_size). Besides, modifying data within a chunk is performed as an in-place update, which utilize a RMW (read-modify-write) process: read other data chunk, calculate new parity, write the new data and parity.
+
+However, this architecture introduces a critical vulnerability known as "write hole" problem. Because the updates to the data chunk and the parity chunk are not atomic (due to they are in different devices), a power failure or system crash can leave the stripe in an inconsistent state, that is, the state of data and parity could be one is new but another is old.
+
+Therefore, recovery mechanism is required to fix the state to be consistent, i.e. both new or at least both old. There are three common recovery mechanisms: bitmap, PPL (partial parity log), and journal.
